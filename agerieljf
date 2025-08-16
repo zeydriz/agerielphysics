@@ -2,387 +2,435 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local IYMouse = LocalPlayer:GetMouse()
 
-
 -- Configuration
 local Settings = {
-    FlySpeed = 1, -- Default fly speed
-    WalkSpeed = 16, -- Default walk speed
-    MaxFlySpeed = 10, -- Maximum fly speed for slider
-    MaxWalkSpeed = 500, -- Maximum walk speed for slider
+	FlySpeed = 1, -- Default fly speed
+	WalkSpeed = 16, -- Default walk speed
+	MaxFlySpeed = 10, -- Maximum fly speed for slider
+	MaxWalkSpeed = 500, -- Maximum walk speed for slider
+	KillAuraRadius = 25, -- Default kill aura radius (studs)
+	KillAuraDamage = 10, -- Default damage per tick
+	MaxKillAuraRadius = 100, -- Maximum radius for slider
+	MaxKillAuraDamage = 100, -- Maximum damage for slider
 }
-
 
 -- State variables
 local IsFlying = false
 local IsNoclipEnabled = false
+local IsKillAuraEnabled = false
 local OriginalWalkSpeed = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") and LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed or 16
 local FlyConnections = {}
-
+local KillAuraConnection = nil
 
 -- Create Rayfield GUI
 local Window = Rayfield:CreateWindow({
-    Name = "Ageriel hygark",
-    LoadingTitle = "Physics testing",
-    LoadingSubtitle = "by zeydriz",
-    Theme = "Default",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "PhysicsTest",
-        FileName = "Config"
-    }
+	Name = "Ageriel Hygark",
+	LoadingTitle = "Physics Testing",
+	LoadingSubtitle = "by zeydriz",
+	Theme = "Default",
+	ConfigurationSaving = {
+		Enabled = true,
+		FolderName = "PhysicsTest",
+		FileName = "Config"
+	}
 })
 
-
 local PlayerTab = Window:CreateTab("Player")
-
+local CombatTab = Window:CreateTab("Combat")
 
 -- Fly functionality (PC)
 local function StartFly()
-    if IsFlying then return end
-    local character = LocalPlayer.Character
-    if not (character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChildOfClass("Humanoid")) then
-        warn("Character or components not found!")
-        return
-    end
+	if IsFlying then return end
+	local character = LocalPlayer.Character
+	if not (character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChildOfClass("Humanoid")) then
+		warn("Character or components not found!")
+		return
+	end
 
+	local root = character:WaitForChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	IsFlying = true
+	humanoid.PlatformStand = true
 
-    local root = character:WaitForChild("HumanoidRootPart")
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    IsFlying = true
-    humanoid.PlatformStand = true
+	local bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.Name = "FlyGyro"
+	bodyGyro.P = 9e4
+	bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+	bodyGyro.CFrame = root.CFrame
+	bodyGyro.Parent = root
 
+	local bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.Name = "FlyVelocity"
+	bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+	bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+	bodyVelocity.Parent = root
 
-    local bodyGyro = Instance.new("BodyGyro")
-    bodyGyro.Name = "FlyGyro"
-    bodyGyro.P = 9e4
-    bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-    bodyGyro.CFrame = root.CFrame
-    bodyGyro.Parent = root
+	local controls = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
+	local lastControls = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
+	local speed = 0
 
+	FlyConnections[#FlyConnections + 1] = IYMouse.KeyDown:Connect(function(key)
+		key = key:lower()
+		if key == "w" then
+			controls.F = Settings.FlySpeed
+		elseif key == "s" then
+			controls.B = -Settings.FlySpeed
+		elseif key == "a" then
+			controls.L = -Settings.FlySpeed
+		elseif key == "d" then
+			controls.R = Settings.FlySpeed
+		elseif key == "e" then
+			controls.Q = Settings.FlySpeed * 2
+		elseif key == "q" then
+			controls.E = -Settings.FlySpeed * 2
+		end
+		Workspace.CurrentCamera.CameraType = Enum.CameraType.Track
+	end)
 
-    local bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Name = "FlyVelocity"
-    bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    bodyVelocity.Parent = root
+	FlyConnections[#FlyConnections + 1] = IYMouse.KeyUp:Connect(function(key)
+		key = key:lower()
+		if key == "w" then
+			controls.F = 0
+		elseif key == "s" then
+			controls.B = 0
+		elseif key == "a" then
+			controls.L = 0
+		elseif key == "d" then
+			controls.R = 0
+		elseif key == "e" then
+			controls.Q = 0
+		elseif key == "q" then
+			controls.E = 0
+		end
+	end)
 
+	FlyConnections[#FlyConnections + 1] = RunService.RenderStepped:Connect(function()
+		if not IsFlying then return end
+		if controls.L + controls.R ~= 0 or controls.F + controls.B ~= 0 or controls.Q + controls.E ~= 0 then
+			speed = 50
+		else
+			speed = 0
+		end
 
-    local controls = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
-    local lastControls = {F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0}
-    local speed = 0
-
-
-    FlyConnections[#FlyConnections + 1] = IYMouse.KeyDown:Connect(function(key)
-        key = key:lower()
-        if key == "w" then
-            controls.F = Settings.FlySpeed
-        elseif key == "s" then
-            controls.B = -Settings.FlySpeed
-        elseif key == "a" then
-            controls.L = -Settings.FlySpeed
-        elseif key == "d" then
-            controls.R = Settings.FlySpeed
-        elseif key == "e" then
-            controls.Q = Settings.FlySpeed * 2
-        elseif key == "q" then
-            controls.E = -Settings.FlySpeed * 2
-        end
-        workspace.CurrentCamera.CameraType = Enum.CameraType.Track
-    end)
-
-
-    FlyConnections[#FlyConnections + 1] = IYMouse.KeyUp:Connect(function(key)
-        key = key:lower()
-        if key == "w" then
-            controls.F = 0
-        elseif key == "s" then
-            controls.B = 0
-        elseif key == "a" then
-            controls.L = 0
-        elseif key == "d" then
-            controls.R = 0
-        elseif key == "e" then
-            controls.Q = 0
-        elseif key == "q" then
-            controls.E = 0
-        end
-    end)
-
-
-    FlyConnections[#FlyConnections + 1] = RunService.RenderStepped:Connect(function()
-        if not IsFlying then return end
-        if controls.L + controls.R ~= 0 or controls.F + controls.B ~= 0 or controls.Q + controls.E ~= 0 then
-            speed = 50
-        else
-            speed = 0
-        end
-
-
-        local camera = workspace.CurrentCamera
-        if (controls.L + controls.R) ~= 0 or (controls.F + controls.B) ~= 0 or (controls.Q + controls.E) ~= 0 then
-            bodyVelocity.Velocity = ((camera.CFrame.LookVector * (controls.F + controls.B)) +
-                ((camera.CFrame * CFrame.new(controls.L + controls.R, (controls.F + controls.B + controls.Q + controls.E) * 0.2, 0).Position) - camera.CFrame.Position)) * speed
-            lastControls = {F = controls.F, B = controls.B, L = controls.L, R = controls.R, Q = controls.Q, E = controls.E}
-        elseif speed ~= 0 then
-            bodyVelocity.Velocity = ((camera.CFrame.LookVector * (lastControls.F + lastControls.B)) +
-                ((camera.CFrame * CFrame.new(lastControls.L + lastControls.R, (lastControls.F + lastControls.B + lastControls.Q + lastControls.E) * 0.2, 0).Position) - camera.CFrame.Position)) * speed
-        else
-            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        end
-        bodyGyro.CFrame = camera.CFrame
-    end)
+		local camera = Workspace.CurrentCamera
+		if (controls.L + controls.R) ~= 0 or (controls.F + controls.B) ~= 0 or (controls.Q + controls.E) ~= 0 then
+			bodyVelocity.Velocity = ((camera.CFrame.LookVector * (controls.F + controls.B)) +
+				((camera.CFrame * CFrame.new(controls.L + controls.R, (controls.F + controls.B + controls.Q + controls.E) * 0.2, 0).Position) - camera.CFrame.Position)) * speed
+			lastControls = {F = controls.F, B = controls.B, L = controls.L, R = controls.R, Q = controls.Q, E = controls.E}
+		elseif speed ~= 0 then
+			bodyVelocity.Velocity = ((camera.CFrame.LookVector * (lastControls.F + lastControls.B)) +
+				((camera.CFrame * CFrame.new(lastControls.L + lastControls.R, (lastControls.F + lastControls.B + lastControls.Q + lastControls.E) * 0.2, 0).Position) - camera.CFrame.Position)) * speed
+		else
+			bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+		end
+		bodyGyro.CFrame = camera.CFrame
+	end)
 end
-
 
 -- Stop fly functionality (PC)
 local function StopFly()
-    if not IsFlying then return end
-    IsFlying = false
-    local character = LocalPlayer.Character
-    if character and character:FindFirstChildOfClass("Humanoid") then
-        character:FindFirstChildOfClass("Humanoid").PlatformStand = false
-    end
-    for _, conn in pairs(FlyConnections) do
-        conn:Disconnect()
-    end
-    FlyConnections = {}
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    if root then
-        if root:FindFirstChild("FlyGyro") then
-            root.FlyGyro:Destroy()
-        end
-        if root:FindFirstChild("FlyVelocity") then
-            root.FlyVelocity:Destroy()
-        end
-    end
-    workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+	if not IsFlying then return end
+	IsFlying = false
+	local character = LocalPlayer.Character
+	if character and character:FindFirstChildOfClass("Humanoid") then
+		character:FindFirstChildOfClass("Humanoid").PlatformStand = false
+	end
+	for _, conn in pairs(FlyConnections) do
+		conn:Disconnect()
+	end
+	FlyConnections = {}
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root then
+		if root:FindFirstChild("FlyGyro") then
+			root.FlyGyro:Destroy()
+		end
+		if root:FindFirstChild("FlyVelocity") then
+			root.FlyVelocity:Destroy()
+		end
+	end
+	Workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
 end
-
 
 -- Fly functionality (Mobile)
 local function StartMobileFly()
-    if IsFlying then return end
-    local character = LocalPlayer.Character
-    if not (character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChildOfClass("Humanoid")) then
-        warn("Character or components not found!")
-        return
-    end
+	if IsFlying then return end
+	local character = LocalPlayer.Character
+	if not (character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChildOfClass("Humanoid")) then
+		warn("Character or components not found!")
+		return
+	end
 
+	local root = character:WaitForChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	IsFlying = true
+	humanoid.PlatformStand = true
 
-    local root = character:WaitForChild("HumanoidRootPart")
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    IsFlying = true
-    humanoid.PlatformStand = true
+	local bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.Name = "FlyVelocity"
+	bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+	bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+	bodyVelocity.Parent = root
 
+	local bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.Name = "FlyGyro"
+	bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+	bodyGyro.P = 1000
+	bodyGyro.D = 50
+	bodyGyro.Parent = root
 
-    local bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Name = "FlyVelocity"
-    bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    bodyVelocity.Parent = root
+	local controlModule = require(LocalPlayer.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
+	FlyConnections[#FlyConnections + 1] = RunService.RenderStepped:Connect(function()
+		if not IsFlying then return end
+		local camera = Workspace.CurrentCamera
+		if not (character and root and root:FindFirstChild("FlyVelocity") and root:FindFirstChild("FlyGyro")) then
+			StopMobileFly()
+			return
+		end
+		local velocityHandler = root.FlyVelocity
+		local gyroHandler = root.FlyGyro
+		velocityHandler.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+		gyroHandler.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+		gyroHandler.CFrame = camera.CFrame
+		velocityHandler.Velocity = Vector3.new(0, 0, 0)
 
+		local direction = controlModule:GetMoveVector()
+		if direction.X ~= 0 then
+			velocityHandler.Velocity = velocityHandler.Velocity + camera.CFrame.RightVector * (direction.X * (Settings.FlySpeed * 50))
+		end
+		if direction.Z ~= 0 then
+			velocityHandler.Velocity = velocityHandler.Velocity - camera.CFrame.LookVector * (direction.Z * (Settings.FlySpeed * 50))
+		end
+	end)
 
-    local bodyGyro = Instance.new("BodyGyro")
-    bodyGyro.Name = "FlyGyro"
-    bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-    bodyGyro.P = 1000
-    bodyGyro.D = 50
-    bodyGyro.Parent = root
-
-
-    local controlModule = require(LocalPlayer.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
-    FlyConnections[#FlyConnections + 1] = RunService.RenderStepped:Connect(function()
-        if not IsFlying then return end
-        local camera = workspace.CurrentCamera
-        if not (character and root and root:FindFirstChild("FlyVelocity") and root:FindFirstChild("FlyGyro")) then
-            StopMobileFly()
-            return
-        end
-        local velocityHandler = root.FlyVelocity
-        local gyroHandler = root.FlyGyro
-        velocityHandler.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-        gyroHandler.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-        gyroHandler.CFrame = camera.CFrame
-        velocityHandler.Velocity = Vector3.new(0, 0, 0)
-
-
-        local direction = controlModule:GetMoveVector()
-        if direction.X ~= 0 then
-            velocityHandler.Velocity = velocityHandler.Velocity + camera.CFrame.RightVector * (direction.X * (Settings.FlySpeed * 50))
-        end
-        if direction.Z ~= 0 then
-            velocityHandler.Velocity = velocityHandler.Velocity - camera.CFrame.LookVector * (direction.Z * (Settings.FlySpeed * 50))
-        end
-    end)
-
-
-    FlyConnections[#FlyConnections + 1] = LocalPlayer.CharacterAdded:Connect(function()
-        if IsFlying then
-            task.wait(0.1) -- Wait for character to fully load
-            StartMobileFly()
-        end
-    end)
+	FlyConnections[#FlyConnections + 1] = LocalPlayer.CharacterAdded:Connect(function()
+		if IsFlying then
+			task.wait(0.1)
+			StartMobileFly()
+		end
+	end)
 end
-
 
 -- Stop fly functionality (Mobile)
 local function StopMobileFly()
-    if not IsFlying then return end
-    IsFlying = false
-    local character = LocalPlayer.Character
-    if character and character:FindFirstChildOfClass("Humanoid") then
-        character:FindFirstChildOfClass("Humanoid").PlatformStand = false
-    end
-    for _, conn in pairs(FlyConnections) do
-        conn:Disconnect()
-    end
-    FlyConnections = {}
-    local root = character and character:FindFirstChild("HumanoidRootPart")
-    if root then
-        if root:FindFirstChild("FlyVelocity") then
-            root.FlyVelocity:Destroy()
-        end
-        if root:FindFirstChild("FlyGyro") then
-            root.FlyGyro:Destroy()
-        end
-    end
-    workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+	if not IsFlying then return end
+	IsFlying = false
+	local character = LocalPlayer.Character
+	if character and character:FindFirstChildOfClass("Humanoid") then
+		character:FindFirstChildOfClass("Humanoid").PlatformStand = false
+	end
+	for _, conn in pairs(FlyConnections) do
+		conn:Disconnect()
+	end
+	FlyConnections = {}
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root then
+		if root:FindFirstChild("FlyVelocity") then
+			root.FlyVelocity:Destroy()
+		end
+		if root:FindFirstChild("FlyGyro") then
+			root.FlyGyro:Destroy()
+		end
+	end
+	Workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
 end
-
 
 -- Noclip functionality
 local function ToggleNoclip(enabled)
-    IsNoclipEnabled = enabled
-    if enabled then
-        task.spawn(function()
-            while IsNoclipEnabled and LocalPlayer.Character do
-                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
-                        part.CanCollide = false
-                    end
-                end
-                task.wait(0.1)
-            end
-            -- Restore collisions when disabled
-            if LocalPlayer.Character then
-                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true
-                    end
-                end
-            end
-        end)
-    end
+	IsNoclipEnabled = enabled
+	if enabled then
+		task.spawn(function()
+			while IsNoclipEnabled and LocalPlayer.Character do
+				for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+					if part:IsA("BasePart") and part.CanCollide then
+						part.CanCollide = false
+					end
+				end
+				task.wait(0.1)
+			end
+			if LocalPlayer.Character then
+				for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = true
+					end
+				end
+			end
+		end)
+	end
 end
-
 
 -- Speed functionality
 local function UpdateSpeed(value)
-    Settings.WalkSpeed = value
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-        LocalPlayer.Character.Humanoid.WalkSpeed = value
-    end
+	Settings.WalkSpeed = value
+	if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+		LocalPlayer.Character.Humanoid.WalkSpeed = value
+	end
 end
 
+-- Kill Aura functionality
+local function ToggleKillAura(enabled)
+	IsKillAuraEnabled = enabled
+	if enabled then
+		KillAuraConnection = RunService.Heartbeat:Connect(function()
+			if not (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then
+				return
+			end
+			local root = LocalPlayer.Character.HumanoidRootPart
+			for _, npc in pairs(Workspace:GetDescendants()) do
+				if npc:IsA("Model") and npc ~= LocalPlayer.Character and npc:FindFirstChildOfClass("Humanoid") and npc:FindFirstChild("HumanoidRootPart") then
+					local humanoid = npc:FindFirstChildOfClass("Humanoid")
+					local npcRoot = npc.HumanoidRootPart
+					local distance = (npcRoot.Position - root.Position).Magnitude
+					if distance <= Settings.KillAuraRadius and humanoid.Health > 0 then
+						humanoid:TakeDamage(Settings.KillAuraDamage)
+					end
+				end
+			end
+		end)
+		Rayfield:Notify({
+			Title = "Kill Aura",
+			Content = "Kill Aura enabled. NPCs within " .. Settings.KillAuraRadius .. " studs will take " .. Settings.KillAuraDamage .. " damage per tick.",
+			Duration = 5,
+			Image = "rewind"
+		})
+	else
+		if KillAuraConnection then
+			KillAuraConnection:Disconnect()
+			KillAuraConnection = nil
+		end
+		Rayfield:Notify({
+			Title = "Kill Aura",
+			Content = "Kill Aura disabled.",
+			Duration = 5,
+			Image = "rewind"
+		})
+	end
+end
 
 -- Handle character respawn to maintain speed
 LocalPlayer.CharacterAdded:Connect(function(character)
-    task.wait(0.1) -- Wait for humanoid to load
-    if character:FindFirstChildOfClass("Humanoid") then
-        character.Humanoid.WalkSpeed = Settings.WalkSpeed
-    end
+	task.wait(0.1)
+	if character:FindFirstChildOfClass("Humanoid") then
+		character.Humanoid.WalkSpeed = Settings.WalkSpeed
+	end
 end)
-
 
 -- GUI Elements
 PlayerTab:CreateSlider({
-    Name = "Walk Speed",
-    Range = {0, Settings.MaxWalkSpeed},
-    Increment = 1,
-    Suffix = "Speed",
-    CurrentValue = Settings.WalkSpeed,
-    Flag = "WalkSpeedSlider",
-    Callback = function(value)
-        UpdateSpeed(value)
-    end
+	Name = "Walk Speed",
+	Range = {0, Settings.MaxWalkSpeed},
+	Increment = 1,
+	Suffix = "Speed",
+	CurrentValue = Settings.WalkSpeed,
+	Flag = "WalkSpeedSlider",
+	Callback = function(value)
+		UpdateSpeed(value)
+	end
 })
-
 
 PlayerTab:CreateSlider({
-    Name = "Fly Speed",
-    Range = {0, Settings.MaxFlySpeed},
-    Increment = 0.1,
-    Suffix = "Fly Speed",
-    CurrentValue = Settings.FlySpeed,
-    Flag = "FlySpeedSlider",
-    Callback = function(value)
-        Settings.FlySpeed = value
-    end
+	Name = "Fly Speed",
+	Range = {0, Settings.MaxFlySpeed},
+	Increment = 0.1,
+	Suffix = "Fly Speed",
+	CurrentValue = Settings.FlySpeed,
+	Flag = "FlySpeedSlider",
+	Callback = function(value)
+		Settings.FlySpeed = value
+	end
 })
-
 
 PlayerTab:CreateToggle({
-    Name = "Fly",
-    CurrentValue = false,
-    Flag = "FlyToggle",
-    Callback = function(value)
-        if value then
-            if UserInputService.TouchEnabled then
-                StartMobileFly()
-            else
-                StartFly()
-            end
-            Rayfield:Notify({
-                Title = "Fly",
-                Content = "Press F to toggle fly on/off (does not affect toggle state).",
-                Duration = 5,
-                Image = "rewind"
-            })
-        else
-            if UserInputService.TouchEnabled then
-                StopMobileFly()
-            else
-                StopFly()
-            end
-        end
-    end
+	Name = "Fly",
+	CurrentValue = false,
+	Flag = "FlyToggle",
+	Callback = function(value)
+		if value then
+			if UserInputService.TouchEnabled then
+				StartMobileFly()
+			else
+				StartFly()
+			end
+			Rayfield:Notify({
+				Title = "Fly",
+				Content = "Press F to toggle fly on/off (does not affect toggle state).",
+				Duration = 5,
+				Image = "rewind"
+			})
+		else
+			if UserInputService.TouchEnabled then
+				StopMobileFly()
+			else
+				StopFly()
+			end
+		end
+	end
 })
-
 
 PlayerTab:CreateToggle({
-    Name = "Noclip",
-    CurrentValue = false,
-    Flag = "NoclipToggle",
-    Callback = function(value)
-        ToggleNoclip(value)
-    end
+	Name = "Noclip",
+	CurrentValue = false,
+	Flag = "NoclipToggle",
+	Callback = function(value)
+		ToggleNoclip(value)
+	end
 })
 
+CombatTab:CreateSlider({
+	Name = "Kill Aura Radius",
+	Range = {0, Settings.MaxKillAuraRadius},
+	Increment = 1,
+	Suffix = "Studs",
+	CurrentValue = Settings.KillAuraRadius,
+	Flag = "KillAuraRadiusSlider",
+	Callback = function(value)
+		Settings.KillAuraRadius = value
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "Kill Aura Damage",
+	Range = {0, Settings.MaxKillAuraDamage},
+	Increment = 1,
+	Suffix = "Damage",
+	CurrentValue = Settings.KillAuraDamage,
+	Flag = "KillAuraDamageSlider",
+	Callback = function(value)
+		Settings.KillAuraDamage = value
+	end
+})
+
+CombatTab:CreateToggle({
+	Name = "Kill Aura",
+	CurrentValue = false,
+	Flag = "KillAuraToggle",
+	Callback = function(value)
+		ToggleKillAura(value)
+	end
+})
 
 -- Fly toggle with F key
 UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        if not IsFlying then
-            if UserInputService.TouchEnabled then
-                StartMobileFly()
-            else
-                StartFly()
-            end
-        else
-            if UserInputService.TouchEnabled then
-                StopMobileFly()
-            else
-                StopFly()
-            end
-        end
-    end
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.F then
+		if not IsFlying then
+			if UserInputService.TouchEnabled then
+				StartMobileFly()
+			else
+				StartFly()
+			end
+		else
+			if UserInputService.TouchEnabled then
+				StopMobileFly()
+			else
+				StopFly()
+			end
+		end
+	end
 end)
-
 
 -- Load saved configuration
 Rayfield:LoadConfiguration()
-
