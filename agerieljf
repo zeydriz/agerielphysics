@@ -13,18 +13,25 @@ local Settings = {
 	MaxFlySpeed = 10, -- Maximum fly speed for slider
 	MaxWalkSpeed = 500, -- Maximum walk speed for slider
 	KillAuraRadius = 25, -- Default kill aura radius (studs)
-	KillAuraDamage = 10, -- Default damage per tick
+	KillAuraDamage = 10, -- Default damage per tick (used by aimbot too)
 	MaxKillAuraRadius = 100, -- Maximum radius for slider
 	MaxKillAuraDamage = 100, -- Maximum damage for slider
+	AimbotFOV = 90, -- Default aimbot FOV radius (pixels)
+	AimbotPart = "Head", -- Default target part
+	MaxAimbotFOV = 200, -- Maximum FOV radius for slider
 }
 
 -- State variables
 local IsFlying = false
 local IsNoclipEnabled = false
 local IsKillAuraEnabled = false
+local IsAimbotEnabled = false
 local OriginalWalkSpeed = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") and LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed or 16
 local FlyConnections = {}
 local KillAuraConnection = nil
+local AimbotConnection = nil
+local AimbotTarget = nil
+local FOVPart = nil
 
 -- Create Rayfield GUI
 local Window = Rayfield:CreateWindow({
@@ -41,6 +48,46 @@ local Window = Rayfield:CreateWindow({
 
 local PlayerTab = Window:CreateTab("Player")
 local CombatTab = Window:CreateTab("Combat")
+
+-- Create FOV visualization
+local function CreateFOVCircle()
+	if FOVPart then
+		FOVPart:Destroy()
+	end
+	FOVPart = Instance.new("Part")
+	FOVPart.Name = "AimbotFOV"
+	FOVPart.Anchored = true
+	FOVPart.CanCollide = false
+	FOVPart.Transparency = 1
+	FOVPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	FOVPart.Parent = Workspace
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "FOVGui"
+	billboard.Adornee = FOVPart
+	billboard.Size = UDim2.new(Settings.AimbotFOV * 2 / 50, 0, Settings.AimbotFOV * 2 / 50, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = FOVPart
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+	frame.BorderSizePixel = 0
+	frame.Parent = billboard
+
+	local uiStroke = Instance.new("UIStroke")
+	uiStroke.Thickness = 2
+	uiStroke.Color = Color3.fromRGB(255, 255, 255)
+	uiStroke.Transparency = 0.5
+	uiStroke.Parent = frame
+end
+
+-- Update FOV circle size
+local function UpdateFOVCircle()
+	if FOVPart and FOVPart:FindFirstChild("FOVGui") then
+		FOVPart.FOVGui.Size = UDim2.new(Settings.AimbotFOV * 2 / 50, 0, Settings.AimbotFOV * 2 / 50, 0)
+	end
+end
 
 -- Fly functionality (PC)
 local function StartFly()
@@ -310,6 +357,83 @@ local function ToggleKillAura(enabled)
 	end
 end
 
+-- Aimbot functionality
+local function ToggleAimbot(enabled)
+	IsAimbotEnabled = enabled
+	if enabled then
+		CreateFOVCircle()
+		AimbotConnection = RunService.RenderStepped:Connect(function()
+			if not (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and Workspace.CurrentCamera) then
+				return
+			end
+			local camera = Workspace.CurrentCamera
+			local root = LocalPlayer.Character.HumanoidRootPart
+			local mousePos = UserInputService:GetMouseLocation()
+			local closestNPC = nil
+			local closestDistance = Settings.AimbotFOV
+
+			-- Find closest NPC within FOV
+			for _, npc in pairs(Workspace:GetDescendants()) do
+				if npc:IsA("Model") and npc ~= LocalPlayer.Character and npc:FindFirstChildOfClass("Humanoid") and npc:FindFirstChild("HumanoidRootPart") and npc:FindFirstChild(Settings.AimbotPart) then
+					local humanoid = npc:FindFirstChildOfClass("Humanoid")
+					if humanoid.Health <= 0 then
+						continue
+					end
+					local partPos = npc[Settings.AimbotPart].Position
+					local screenPos, onScreen = camera:WorldToViewportPoint(partPos)
+					if not onScreen then
+						continue
+					end
+					local distance = (mousePos - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
+					if distance <= closestDistance then
+						closestDistance = distance
+						closestNPC = npc
+					end
+				end
+			end
+
+			AimbotTarget = closestNPC
+			if AimbotTarget and AimbotTarget:FindFirstChild(Settings.AimbotPart) then
+				local targetPos = AimbotTarget[Settings.AimbotPart].Position
+				camera.CFrame = CFrame.new(camera.CFrame.Position, targetPos)
+				-- Apply damage to test sword mechanics
+				local humanoid = AimbotTarget:FindFirstChildOfClass("Humanoid")
+				if humanoid and humanoid.Health > 0 then
+					humanoid:TakeDamage(Settings.KillAuraDamage)
+				end
+			end
+
+			-- Update FOV circle position
+			if FOVPart then
+				FOVPart.CFrame = CFrame.new(root.Position + Vector3.new(0, 2, 0))
+				FOVPart.FOVGui.Enabled = true
+			end
+		end)
+		Rayfield:Notify({
+			Title = "Aimbot",
+			Content = "Aimbot enabled. Targeting " .. Settings.AimbotPart .. " of NPCs within FOV.",
+			Duration = 5,
+			Image = "rewind"
+		})
+	else
+		if AimbotConnection then
+			AimbotConnection:Disconnect()
+			AimbotConnection = nil
+		end
+		AimbotTarget = nil
+		if FOVPart then
+			FOVPart:Destroy()
+			FOVPart = nil
+		end
+		Rayfield:Notify({
+			Title = "Aimbot",
+			Content = "Aimbot disabled.",
+			Duration = 5,
+			Image = "rewind"
+		})
+	end
+end
+
 -- Handle character respawn to maintain speed
 LocalPlayer.CharacterAdded:Connect(function(character)
 	task.wait(0.1)
@@ -392,7 +516,7 @@ CombatTab:CreateSlider({
 })
 
 CombatTab:CreateSlider({
-	Name = "Kill Aura Damage",
+	Name = "Damage",
 	Range = {0, Settings.MaxKillAuraDamage},
 	Increment = 1,
 	Suffix = "Damage",
@@ -409,6 +533,38 @@ CombatTab:CreateToggle({
 	Flag = "KillAuraToggle",
 	Callback = function(value)
 		ToggleKillAura(value)
+	end
+})
+
+CombatTab:CreateSlider({
+	Name = "Aimbot FOV",
+	Range = {0, Settings.MaxAimbotFOV},
+	Increment = 1,
+	Suffix = "Pixels",
+	CurrentValue = Settings.AimbotFOV,
+	Flag = "AimbotFOVSlider",
+	Callback = function(value)
+		Settings.AimbotFOV = value
+		UpdateFOVCircle()
+	end
+})
+
+CombatTab:CreateDropdown({
+	Name = "Aimbot Target Part",
+	Options = {"Head", "HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso"},
+	CurrentOption = Settings.AimbotPart,
+	Flag = "AimbotPartDropdown",
+	Callback = function(value)
+		Settings.AimbotPart = value
+	end
+})
+
+CombatTab:CreateToggle({
+	Name = "Aimbot",
+	CurrentValue = false,
+	Flag = "AimbotToggle",
+	Callback = function(value)
+		ToggleAimbot(value)
 	end
 })
 
@@ -431,6 +587,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		end
 	end
 end)
+
+-- Initialize FOV circle
+CreateFOVCircle()
 
 -- Load saved configuration
 Rayfield:LoadConfiguration()
