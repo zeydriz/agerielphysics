@@ -24,9 +24,9 @@ local FlyConnections = {}
 
 -- Create Rayfield GUI
 local Window = Rayfield:CreateWindow({
-    Name = "Physics Testing GUI",
-    LoadingTitle = "Physics Testing",
-    LoadingSubtitle = "by Grok",
+    Name = "Ageriel hygark",
+    LoadingTitle = "Physics testing",
+    LoadingSubtitle = "by zeydriz",
     Theme = "Default",
     ConfigurationSaving = {
         Enabled = true,
